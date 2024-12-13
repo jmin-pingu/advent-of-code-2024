@@ -2,4 +2,5 @@ target
 *.txt
 zig-out
 .zig-cache
+.DS_Store
 
