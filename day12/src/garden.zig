@@ -31,7 +31,6 @@ pub const Garden = struct {
 
         // Fill out the region
         if (self.next()) |coordinate| {
-            std.debug.print("{any}\n", .{coordinate});
             region.value = self.get(coordinate);
             self.search_region(coordinate, &seen, &borders, region);
         } else {
