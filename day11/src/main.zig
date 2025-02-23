@@ -1,5 +1,7 @@
 const std = @import("std");
 const ArrayList = std.ArrayList;
+const AutoHashMap = std.AutoHashMap;
+const StringHashMap = std.StringHashMap;
 const time = std.time;
 
 pub fn main() !void {
@@ -7,114 +9,64 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(gpa.allocator());
     defer arena.deinit();
     const allocator = arena.allocator();
-    var stones = ArrayList([]const u8).init(allocator);
+    var stones = StringHashMap(usize).init(allocator);
     defer stones.deinit();
 
-    try parse("test-input.txt", allocator, &stones);
-    const n_blinks = 25;
+    stones = StringHashMap(usize).init(allocator);
+    try parse("input.txt", allocator, &stones);
 
     var start = time.milliTimestamp();
-    try blink(n_blinks, &stones, allocator);
-    std.debug.print("Part 1 Total: {d}\n", .{stones.items.len});
+    var post_blink_stones = try blink(25, stones, allocator);
+    std.debug.print("Part 1 Total: {d}\n", .{count_stones(&post_blink_stones)});
     std.debug.print("took {d:.4}s\n", .{@as(f32, @floatFromInt(time.milliTimestamp() - start)) / 1000.0});
-
-    // First, try memoization: not much of a speed up due to reinitializing ArrayList
-    // Instead, I think I have to keep track of cycles to
-    // prevent the ArrayList from growing to an unmanageable size
-    // In particular, I'm sure I have to keep track of 0's
-    // since 0 -> 1 -> 2024 -> 2 0 2 4
-    var seen = std.StringHashMap(ArrayList([]const u8)).init(allocator);
-    defer seen.deinit();
-    stones = ArrayList([]const u8).init(allocator);
-    try parse("test-input.txt", allocator, &stones);
 
     start = time.milliTimestamp();
-    try blink_memoized(n_blinks, &stones, &seen, allocator);
-    std.debug.print("Part 2 Total: {d}\n", .{stones.items.len});
+    post_blink_stones = try blink(75, stones, allocator);
+    std.debug.print("Part 2 Total: {d}\n", .{count_stones(&post_blink_stones)});
     std.debug.print("took {d:.4}s\n", .{@as(f32, @floatFromInt(time.milliTimestamp() - start)) / 1000.0});
 }
-// instead 
 
-pub fn blink_memoized(n: u8, stones: *ArrayList([]const u8), seen: *std.StringHashMap(ArrayList([]const u8)), allocator: std.mem.Allocator) !void {
-    if (n == 0) return;
-    const l = stones.items.len;
-    // ArrayList Methods
-    var offset: usize = 0;
 
-    // std.debug.print("iter {d}: {s}\n", .{n, stones.items});
-    for (0..l) |i| {
-        const curr_item = stones.items[i+offset];
-        // Memoization: check if value is in seen
-        if (seen.get(curr_item)) |val| {
-            // std.debug.print("found {s}: {s}, size: {d}\n", .{curr_item, val.items, stones.items.len});
-            _ = stones.orderedRemove(i+offset);
-            try stones.insertSlice(i+offset, val.items);
-            // std.debug.print("\tnew size {d}\n", .{stones.items.len});
-            if (val.items.len == 2) offset += 1;
-            continue;
-        }
-
-        var values = ArrayList([]const u8).init(allocator);
-        if (std.mem.eql(u8, curr_item, "0")) {
-            stones.items[i+offset] = "1";
-
-            // Memoization: add to seen
-            try values.append("1");
-        } else if (@rem(curr_item.len, 2) == 0) {
-            const k = curr_item.len / 2;
-            const item = stones.orderedRemove(i+offset);
-            const l_item = try std.fmt.allocPrint(allocator, "{}", .{try std.fmt.parseInt(u64, item[0..k], 10)});
-            const r_item = try std.fmt.allocPrint(allocator, "{}", .{try std.fmt.parseInt(u64, item[k..item.len], 10)});
-
-            try stones.insert(i + offset, l_item);
-            try stones.insert(i + offset + 1, r_item);
-            offset += 1;
-
-            // Memoization: add to seen
-            try values.append(l_item);
-            try values.append(r_item);
-        } else {
-            const new_item = try std.fmt.allocPrint(allocator, "{}", .{try std.fmt.parseInt(u64, curr_item, 10) * 2024});
-            stones.items[i+offset] = new_item;
-
-            // Memoization: add to seen
-            try values.append(new_item);
-        }
-        try seen.put(curr_item, values);
+pub fn count_stones(stones: *StringHashMap(usize)) usize {
+    var it = stones.valueIterator();
+    var count: usize = 0;
+    while (it.next()) |v| {
+        count += v.*;
     }
-    try blink_memoized(n-1, stones, seen, allocator);
+    return count;
 }
 
-pub fn blink(n: u8, stones: *ArrayList([]const u8), allocator: std.mem.Allocator) !void {
-    if (n == 0) return;
-    const l = stones.items.len;
-    // ArrayList Methods
-    var offset: usize = 0;
-
-    for (0..l) |i| {
-        if (std.mem.eql(u8, stones.items[i+offset],
-                "0")) {
-            stones.items[i+offset] = "1";
-        } else if (@rem(stones.items[i+offset].len, 2) == 0) {
-            const k = stones.items[i+offset].len / 2;
-            const item = stones.orderedRemove(i+offset);
-            const l_item = try std.fmt.parseInt(u64, item[0..k], 10);
-            const r_item = try std.fmt.parseInt(u64, item[k..item.len], 10);
-            try stones.insert(i + offset, try std.fmt.allocPrint(allocator, "{}", .{l_item}));
-            try stones.insert(i + offset + 1, try std.fmt.allocPrint(allocator, "{}", .{r_item}));
-            offset += 1;
+pub fn blink(n: u8, stones: StringHashMap(usize), allocator: std.mem.Allocator) !StringHashMap(usize) {
+    if (n == 0) return stones;
+    var it = stones.iterator();
+    var next_stones = StringHashMap(usize).init(allocator);
+    while (it.next()) |kv| {
+        if (std.mem.eql(u8, kv.key_ptr.*,"0")) {
+            const existing_value =  try next_stones.getOrPutValue("1", 0);
+            existing_value.value_ptr.* += kv.value_ptr.*;
+            continue;
+        } else if (@mod(kv.key_ptr.*.len, 2) == 0) {
+            const key_len = kv.key_ptr.*.len/2;
+            var window = std.mem.window(u8, kv.key_ptr.*, key_len, key_len);
+            while (window.next()) |new_stone| {
+                const parsed_stone = try std.fmt.parseInt(usize, new_stone, 10);
+                const existing_value = try next_stones.getOrPutValue(try std.fmt.allocPrint(allocator, "{d}", .{parsed_stone}), 0);
+                existing_value.value_ptr.* += kv.value_ptr.*;
+            }
         } else {
-            const new_item = try std.fmt.parseInt(u64, stones.items[i+offset], 10) * 2024;
-            stones.items[i+offset] = try std.fmt.allocPrint(allocator, "{}", .{new_item});
+            const new_stone = try std.fmt.parseInt(usize, kv.key_ptr.* , 10) * 2024;
+            const existing_value =  try next_stones.getOrPutValue(try std.fmt.allocPrint(allocator, "{d}", .{new_stone}), 0);
+            existing_value.value_ptr.* += kv.value_ptr.*;
         }
     }
-    try blink(n-1, stones, allocator);
+
+    return try blink(n-1, next_stones, allocator);
 }
 
 pub fn parse(
     path: []const u8, 
     allocator: std.mem.Allocator,
-    stones: *ArrayList([]const u8)
+    stones: *StringHashMap(usize),
 ) !void {
     // Open file and read contents
     var file = try std.fs.cwd().openFile(path, .{});
@@ -127,7 +79,8 @@ pub fn parse(
         while (it.next()) |val| {
             const new_val = try allocator.alloc(u8, val.len);
             std.mem.copyForwards(u8, new_val, val);
-            try stones.append(new_val);
+            const entry = try stones.getOrPutValue(new_val, 0);
+            entry.value_ptr.* += 1;
         }
     }
 }
